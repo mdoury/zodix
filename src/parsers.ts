@@ -39,19 +39,19 @@ type SafeParsedData<T extends ZodRawShape | ZodTypeAny> = T extends ZodTypeAny
   : never;
 
 /**
- * Parse and validate Params from LoaderArgs or ActionArgs. Throws an error if validation fails.
+ * Synchronously parse and validate Params from LoaderArgs or ActionArgs. Throws an error if validation fails.
  * @param params - A Remix Params object.
  * @param schema - A Zod object shape or object schema to validate.
  * @throws {Response} - Throws an error Response if validation fails.
  */
-export function parseParams<T extends ZodRawShape | ZodTypeAny>(
+export async function parseParams<T extends ZodRawShape | ZodTypeAny>(
   params: Params,
   schema: T,
   options?: Options
-): ParsedData<T> {
+): Promise<ParsedData<T>> {
   try {
     const finalSchema = schema instanceof ZodType ? schema : z.object(schema);
-    return finalSchema.parse(params);
+    return finalSchema.parseAsync(params);
   } catch (error) {
     throw createErrorResponse(options);
   }
@@ -63,12 +63,12 @@ export function parseParams<T extends ZodRawShape | ZodTypeAny>(
  * @param schema - A Zod object shape or object schema to validate.
  * @returns {SafeParseReturnType} - An object with the parsed data or a ZodError.
  */
-export function parseParamsSafe<T extends ZodRawShape | ZodTypeAny>(
+export async function parseParamsSafe<T extends ZodRawShape | ZodTypeAny>(
   params: Params,
   schema: T
-): SafeParsedData<T> {
+): Promise<SafeParsedData<T>> {
   const finalSchema = schema instanceof ZodType ? schema : z.object(schema);
-  return finalSchema.safeParse(params) as SafeParsedData<T>;
+  return finalSchema.safeParseAsync(params) as Promise<SafeParsedData<T>>;
 }
 
 /**
@@ -77,18 +77,18 @@ export function parseParamsSafe<T extends ZodRawShape | ZodTypeAny>(
  * @param schema - A Zod object shape or object schema to validate.
  * @throws {Response} - Throws an error Response if validation fails.
  */
-export function parseQuery<T extends ZodRawShape | ZodTypeAny>(
+export async function parseQuery<T extends ZodRawShape | ZodTypeAny>(
   request: Request | URLSearchParams,
   schema: T,
   options?: Options
-): ParsedData<T> {
+): Promise<ParsedData<T>> {
   try {
     const searchParams = isURLSearchParams(request)
       ? request
       : getSearchParamsFromRequest(request);
     const params = parseSearchParams(searchParams, options?.parser);
     const finalSchema = schema instanceof ZodType ? schema : z.object(schema);
-    return finalSchema.parse(params);
+    return finalSchema.parseAsync(params);
   } catch (error) {
     throw createErrorResponse(options);
   }
@@ -100,17 +100,17 @@ export function parseQuery<T extends ZodRawShape | ZodTypeAny>(
  * @param schema - A Zod object shape or object schema to validate.
  * @returns {SafeParseReturnType} - An object with the parsed data or a ZodError.
  */
-export function parseQuerySafe<T extends ZodRawShape | ZodTypeAny>(
+export async function parseQuerySafe<T extends ZodRawShape | ZodTypeAny>(
   request: Request | URLSearchParams,
   schema: T,
   options?: Options
-): SafeParsedData<T> {
+): Promise<SafeParsedData<T>> {
   const searchParams = isURLSearchParams(request)
     ? request
     : getSearchParamsFromRequest(request);
   const params = parseSearchParams(searchParams, options?.parser);
   const finalSchema = schema instanceof ZodType ? schema : z.object(schema);
-  return finalSchema.safeParse(params) as SafeParsedData<T>;
+  return finalSchema.safeParseAsync(params) as Promise<SafeParsedData<T>>;
 }
 
 /**
@@ -131,7 +131,7 @@ export async function parseForm<
     const formData = isFormData(request) ? request : await request.formData();
     const data = await parseFormData(formData, options?.parser);
     const finalSchema = schema instanceof ZodType ? schema : z.object(schema);
-    return finalSchema.parse(data);
+    return finalSchema.parseAsync(data);
   } catch (error) {
     throw createErrorResponse(options);
   }
@@ -154,7 +154,7 @@ export async function parseFormSafe<
   const formData = isFormData(request) ? request : await request.formData();
   const data = await parseFormData(formData, options?.parser);
   const finalSchema = schema instanceof ZodType ? schema : z.object(schema);
-  return finalSchema.safeParse(data) as SafeParsedData<T>;
+  return finalSchema.safeParseAsync(data) as Promise<SafeParsedData<T>>;
 }
 
 /**
@@ -179,10 +179,7 @@ function isObjectEntry([, value]: [string, FormDataEntryValue]) {
 /**
  * Get the form data from a request as an object.
  */
-async function parseFormData(
-  formData: FormData,
-  customParser?: SearchParamsParser
-) {
+function parseFormData(formData: FormData, customParser?: SearchParamsParser) {
   const objectEntries = [...formData.entries()].filter(isObjectEntry);
   objectEntries.forEach(([key, value]) => {
     formData.set(key, JSON.stringify(value));

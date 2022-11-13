@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import type { LoaderArgs } from '@remix-run/server-runtime';
+import type { ZodEffects, ZodObject, ZodRawShape } from 'zod';
 import { FormData, NodeOnDiskFile, Request } from '@remix-run/node';
 import { z } from 'zod';
 import { zx } from './';
@@ -10,26 +11,45 @@ describe('parseParams', () => {
   type Result = { id: string; age: number };
   const params: Params = { id: 'id1', age: '10' };
   const paramsResult = { id: 'id1', age: 10 };
-  const schema = z.object({ id: z.string(), age: zx.IntAsString });
+  const objectSchema = { id: z.string(), age: zx.IntAsString };
+  const zodSchema = z.object(objectSchema);
+  const asyncSchema = zodSchema.transform((data) => Promise.resolve(data));
 
-  test('parses params using an object', () => {
-    const result = zx.parseParams(params, {
-      id: z.string(),
-      age: zx.IntAsString,
-    });
+  test('parses params using an object', async () => {
+    const result = await zx.parseParams(params, objectSchema);
     expect(result).toStrictEqual(paramsResult);
     type verify = Expect<Equal<typeof result, Result>>;
   });
 
-  test('parses params using a schema', () => {
-    const result = zx.parseParams(params, schema);
+  test('parses params using a schema', async () => {
+    const result = await zx.parseParams(params, zodSchema);
     expect(result).toStrictEqual(paramsResult);
     type verify = Expect<Equal<typeof result, Result>>;
   });
 
-  test('throws for invalid params', () => {
+  test('parses params using an async schema', async () => {
+    const result = await zx.parseParams(params, asyncSchema);
+    expect(result).toStrictEqual(paramsResult);
+    type verify = Expect<Equal<typeof result, Result>>;
+  });
+
+  test('throws for invalid params using an object', async () => {
     const badParams = { ...params, age: 'not a number' };
-    expect(() => zx.parseParams(badParams, schema)).toThrow();
+    await expect(() =>
+      zx.parseParams(badParams, objectSchema)
+    ).rejects.toThrow();
+  });
+
+  test('throws for invalid params using a schema', async () => {
+    const badParams = { ...params, age: 'not a number' };
+    await expect(() => zx.parseParams(badParams, zodSchema)).rejects.toThrow();
+  });
+
+  test('throws for invalid params using an async schema', async () => {
+    const badParams = { ...params, age: 'not a number' };
+    await expect(() =>
+      zx.parseParams(badParams, asyncSchema)
+    ).rejects.toThrow();
   });
 });
 
@@ -37,10 +57,12 @@ describe('parseParamsSafe', () => {
   type Result = { id: string; age: number };
   const params: Params = { id: 'id1', age: '10' };
   const paramsResult = { id: 'id1', age: 10 };
-  const schema = z.object({ id: z.string(), age: zx.IntAsString });
+  const objectSchema = { id: z.string(), age: zx.IntAsString };
+  const zodSchema = z.object(objectSchema);
+  const asyncSchema = zodSchema.transform((data) => Promise.resolve(data));
 
-  test('parses params using an object', () => {
-    const result = zx.parseParamsSafe(params, {
+  test('parses params using an object', async () => {
+    const result = await zx.parseParamsSafe(params, {
       id: z.string(),
       age: zx.IntAsString,
     });
@@ -50,17 +72,43 @@ describe('parseParamsSafe', () => {
     type verify = Expect<Equal<typeof result.data, Result>>;
   });
 
-  test('parses params using a schema', () => {
-    const result = zx.parseParamsSafe(params, schema);
+  test('parses params using a schema', async () => {
+    const result = await zx.parseParamsSafe(params, zodSchema);
     expect(result.success).toBe(true);
     if (result.success !== true) throw new Error('Parsing failed');
     expect(result.data).toStrictEqual(paramsResult);
     type verify = Expect<Equal<typeof result.data, Result>>;
   });
 
-  test('returns an error for invalid params', () => {
+  test('parses params using an async schema', async () => {
+    const result = await zx.parseParamsSafe(params, asyncSchema);
+    expect(result.success).toBe(true);
+    if (result.success !== true) throw new Error('Parsing failed');
+    expect(result.data).toStrictEqual(paramsResult);
+    type verify = Expect<Equal<typeof result.data, Result>>;
+  });
+
+  test('returns an error for invalid params using an object', async () => {
     const badParams = { ...params, age: 'not a number' };
-    const result = zx.parseParamsSafe(badParams, schema);
+    const result = await zx.parseParamsSafe(badParams, objectSchema);
+    expect(result.success).toBe(false);
+    if (result.success !== false) throw new Error('Parsing should have failed');
+    expect(result.error.issues.length).toBe(1);
+    expect(result.error.issues[0].path[0]).toBe('age');
+  });
+
+  test('returns an error for invalid params using a schema', async () => {
+    const badParams = { ...params, age: 'not a number' };
+    const result = await zx.parseParamsSafe(badParams, zodSchema);
+    expect(result.success).toBe(false);
+    if (result.success !== false) throw new Error('Parsing should have failed');
+    expect(result.error.issues.length).toBe(1);
+    expect(result.error.issues[0].path[0]).toBe('age');
+  });
+
+  test('returns an error for invalid params using an async schema', async () => {
+    const badParams = { ...params, age: 'not a number' };
+    const result = await zx.parseParamsSafe(badParams, asyncSchema);
     expect(result.success).toBe(false);
     if (result.success !== false) throw new Error('Parsing should have failed');
     expect(result.error.issues.length).toBe(1);
@@ -70,16 +118,18 @@ describe('parseParamsSafe', () => {
 
 describe('parseQuery', () => {
   type Result = { id: string; age: number; friends?: string[] };
+  const search = new URLSearchParams({ id: 'id1', age: '10' });
   const queryResult = { id: 'id1', age: 10 };
-  const schema = z.object({
+  const objectSchema = {
     id: z.string(),
     age: zx.IntAsString,
     friends: z.array(z.string()).optional(),
-  });
+  };
+  const zodSchema = z.object(objectSchema);
+  const asyncSchema = zodSchema.transform((data) => Promise.resolve(data));
 
-  test('parses URLSearchParams using an object', () => {
-    const search = new URLSearchParams({ id: 'id1', age: '10' });
-    const result = zx.parseQuery(search, {
+  test('parses URLSearchParams using an object', async () => {
+    const result = await zx.parseQuery(search, {
       id: z.string(),
       age: zx.IntAsString,
       friends: z.array(z.string()).optional(),
@@ -88,18 +138,23 @@ describe('parseQuery', () => {
     type verify = Expect<Equal<typeof result, Result>>;
   });
 
-  test('parses URLSearchParams using a schema', () => {
-    const search = new URLSearchParams({ id: 'id1', age: '10' });
-    const result = zx.parseQuery(search, schema);
+  test('parses URLSearchParams using a schema', async () => {
+    const result = await zx.parseQuery(search, zodSchema);
     expect(result).toStrictEqual(queryResult);
     type verify = Expect<Equal<typeof result, Result>>;
   });
 
-  test('parses arrays from URLSearchParams', () => {
+  test('parses URLSearchParams using an async schema', async () => {
+    const result = await zx.parseQuery(search, asyncSchema);
+    expect(result).toStrictEqual(queryResult);
+    type verify = Expect<Equal<typeof result, Result>>;
+  });
+
+  test('parses arrays from URLSearchParams using an object', async () => {
     const search = new URLSearchParams({ id: 'id1', age: '10' });
     search.append('friends', 'friend1');
     search.append('friends', 'friend2');
-    const result = zx.parseQuery(search, {
+    const result = await zx.parseQuery(search, {
       id: z.string(),
       age: zx.IntAsString,
       friends: z.array(z.string()).optional(),
@@ -111,10 +166,33 @@ describe('parseQuery', () => {
     type verify = Expect<Equal<typeof result, Result>>;
   });
 
-  test('parses query string from a Request using an object', () => {
+  test('parses arrays from URLSearchParams using a schema', async () => {
     const search = new URLSearchParams({ id: 'id1', age: '10' });
+    search.append('friends', 'friend1');
+    search.append('friends', 'friend2');
+    const result = await zx.parseQuery(search, zodSchema);
+    expect(result).toStrictEqual({
+      ...queryResult,
+      friends: ['friend1', 'friend2'],
+    });
+    type verify = Expect<Equal<typeof result, Result>>;
+  });
+
+  test('parses arrays from URLSearchParams using an async schema', async () => {
+    const search = new URLSearchParams({ id: 'id1', age: '10' });
+    search.append('friends', 'friend1');
+    search.append('friends', 'friend2');
+    const result = await zx.parseQuery(search, asyncSchema);
+    expect(result).toStrictEqual({
+      ...queryResult,
+      friends: ['friend1', 'friend2'],
+    });
+    type verify = Expect<Equal<typeof result, Result>>;
+  });
+
+  test('parses query string from a Request using an object', async () => {
     const request = new Request(`http://example.com?${search.toString()}`);
-    const result = zx.parseQuery(request, {
+    const result = await zx.parseQuery(request, {
       id: z.string(),
       age: zx.IntAsString,
       friends: z.array(z.string()).optional(),
@@ -123,24 +201,42 @@ describe('parseQuery', () => {
     type verify = Expect<Equal<typeof result, Result>>;
   });
 
-  test('parses query string from a Request using a schema', () => {
-    const search = new URLSearchParams({ id: 'id1', age: '10' });
+  test('parses query string from a Request using a schema', async () => {
     const request = new Request(`http://example.com?${search.toString()}`);
-    const result = zx.parseQuery(request, schema);
+    const result = await zx.parseQuery(request, zodSchema);
     expect(result).toStrictEqual(queryResult);
     type verify = Expect<Equal<typeof result, Result>>;
   });
 
-  test('throws for invalid query params', () => {
-    const badRequest = new Request(`http://example.com?id=id1&age=notanumber`);
-    expect(() => zx.parseQuery(badRequest, schema)).toThrow();
+  test('parses query string from a Request using an async schema', async () => {
+    const request = new Request(`http://example.com?${search.toString()}`);
+    const result = await zx.parseQuery(request, asyncSchema);
+    expect(result).toStrictEqual(queryResult);
+    type verify = Expect<Equal<typeof result, Result>>;
   });
 
-  test('supports custom URLSearchParam parsers', () => {
+  test('throws for invalid query params using an object', async () => {
+    const badRequest = new Request(`http://example.com?id=id1&age=notanumber`);
+    await expect(() => zx.parseQuery(badRequest, zodSchema)).rejects.toThrow();
+  });
+
+  test('throws for invalid query params using a schema', async () => {
+    const badRequest = new Request(`http://example.com?id=id1&age=notanumber`);
+    await expect(() => zx.parseQuery(badRequest, zodSchema)).rejects.toThrow();
+  });
+
+  test('throws for invalid query params using an async schema', async () => {
+    const badRequest = new Request(`http://example.com?id=id1&age=notanumber`);
+    await expect(() =>
+      zx.parseQuery(badRequest, asyncSchema)
+    ).rejects.toThrow();
+  });
+
+  test('supports custom URLSearchParam parsers using an object', async () => {
     const search = new URLSearchParams(
       `?id=id1&age=10&friends[]=friend1&friends[]=friend2`
     );
-    const result = zx.parseQuery(
+    const result = await zx.parseQuery(
       search,
       {
         id: z.string(),
@@ -155,20 +251,49 @@ describe('parseQuery', () => {
     });
     type verify = Expect<Equal<typeof result, Result>>;
   });
+
+  test('supports custom URLSearchParam parsers using a schema', async () => {
+    const search = new URLSearchParams(
+      `?id=id1&age=10&friends[]=friend1&friends[]=friend2`
+    );
+    const result = await zx.parseQuery(search, zodSchema, {
+      parser: customArrayParser,
+    });
+    expect(result).toStrictEqual({
+      ...queryResult,
+      friends: ['friend1', 'friend2'],
+    });
+    type verify = Expect<Equal<typeof result, Result>>;
+  });
+
+  test('supports custom URLSearchParam parsers using an async schema', async () => {
+    const search = new URLSearchParams(
+      `?id=id1&age=10&friends[]=friend1&friends[]=friend2`
+    );
+    const result = await zx.parseQuery(search, asyncSchema, {
+      parser: customArrayParser,
+    });
+    expect(result).toStrictEqual({
+      ...queryResult,
+      friends: ['friend1', 'friend2'],
+    });
+    type verify = Expect<Equal<typeof result, Result>>;
+  });
 });
 
 describe('parseQuerySafe', () => {
   type Result = { id: string; age: number; friends?: string[] };
   const queryResult = { id: 'id1', age: 10 };
-  const schema = z.object({
+  const zodSchema = z.object({
     id: z.string(),
     age: zx.IntAsString,
     friends: z.array(z.string()).optional(),
   });
+  const asyncSchema = zodSchema.transform((data) => Promise.resolve(data));
 
-  test('parses URLSearchParams using an object', () => {
+  test('parses URLSearchParams using an object', async () => {
     const search = new URLSearchParams({ id: 'id1', age: '10' });
-    const result = zx.parseQuerySafe(search, {
+    const result = await zx.parseQuerySafe(search, {
       id: z.string(),
       age: zx.IntAsString,
       friends: z.array(z.string()).optional(),
@@ -179,20 +304,29 @@ describe('parseQuerySafe', () => {
     type verify = Expect<Equal<typeof result.data, Result>>;
   });
 
-  test('parses URLSearchParams using a schema', () => {
+  test('parses URLSearchParams using a schema', async () => {
     const search = new URLSearchParams({ id: 'id1', age: '10' });
-    const result = zx.parseQuerySafe(search, schema);
+    const result = await zx.parseQuerySafe(search, zodSchema);
     expect(result.success).toBe(true);
     if (result.success !== true) throw new Error('Parsing failed');
     expect(result.data).toStrictEqual(queryResult);
     type verify = Expect<Equal<typeof result.data, Result>>;
   });
 
-  test('parses arrays from URLSearchParams', () => {
+  test('parses URLSearchParams using an async schema', async () => {
+    const search = new URLSearchParams({ id: 'id1', age: '10' });
+    const result = await zx.parseQuerySafe(search, asyncSchema);
+    expect(result.success).toBe(true);
+    if (result.success !== true) throw new Error('Parsing failed');
+    expect(result.data).toStrictEqual(queryResult);
+    type verify = Expect<Equal<typeof result.data, Result>>;
+  });
+
+  test('parses arrays from URLSearchParams using an object', async () => {
     const search = new URLSearchParams({ id: 'id1', age: '10' });
     search.append('friends', 'friend1');
     search.append('friends', 'friend2');
-    const result = zx.parseQuerySafe(search, {
+    const result = await zx.parseQuerySafe(search, {
       id: z.string(),
       age: zx.IntAsString,
       friends: z.array(z.string()).optional(),
@@ -206,10 +340,38 @@ describe('parseQuerySafe', () => {
     type verify = Expect<Equal<typeof result.data, Result>>;
   });
 
-  test('parses query string from a Request using an object', () => {
+  test('parses arrays from URLSearchParams using a schema', async () => {
+    const search = new URLSearchParams({ id: 'id1', age: '10' });
+    search.append('friends', 'friend1');
+    search.append('friends', 'friend2');
+    const result = await zx.parseQuerySafe(search, zodSchema);
+    expect(result.success).toBe(true);
+    if (result.success !== true) throw new Error('Parsing failed');
+    expect(result.data).toStrictEqual({
+      ...queryResult,
+      friends: ['friend1', 'friend2'],
+    });
+    type verify = Expect<Equal<typeof result.data, Result>>;
+  });
+
+  test('parses arrays from URLSearchParams using an async schema', async () => {
+    const search = new URLSearchParams({ id: 'id1', age: '10' });
+    search.append('friends', 'friend1');
+    search.append('friends', 'friend2');
+    const result = await zx.parseQuerySafe(search, asyncSchema);
+    expect(result.success).toBe(true);
+    if (result.success !== true) throw new Error('Parsing failed');
+    expect(result.data).toStrictEqual({
+      ...queryResult,
+      friends: ['friend1', 'friend2'],
+    });
+    type verify = Expect<Equal<typeof result.data, Result>>;
+  });
+
+  test('parses query string from a Request using an object', async () => {
     const search = new URLSearchParams({ id: 'id1', age: '10' });
     const request = new Request(`http://example.com?${search.toString()}`);
-    const result = zx.parseQuerySafe(request, {
+    const result = await zx.parseQuerySafe(request, {
       id: z.string(),
       age: zx.IntAsString,
       friends: z.array(z.string()).optional(),
@@ -220,19 +382,38 @@ describe('parseQuerySafe', () => {
     type verify = Expect<Equal<typeof result.data, Result>>;
   });
 
-  test('parses query string from a Request using a schema', () => {
+  test('parses query string from a Request using a schema', async () => {
     const search = new URLSearchParams({ id: 'id1', age: '10' });
     const request = new Request(`http://example.com?${search.toString()}`);
-    const result = zx.parseQuerySafe(request, schema);
+    const result = await zx.parseQuerySafe(request, zodSchema);
     expect(result.success).toBe(true);
     if (result.success !== true) throw new Error('Parsing failed');
     expect(result.data).toStrictEqual(queryResult);
     type verify = Expect<Equal<typeof result.data, Result>>;
   });
 
-  test('returns an error for invalid query params', () => {
+  test('parses query string from a Request using an async schema', async () => {
+    const search = new URLSearchParams({ id: 'id1', age: '10' });
+    const request = new Request(`http://example.com?${search.toString()}`);
+    const result = await zx.parseQuerySafe(request, asyncSchema);
+    expect(result.success).toBe(true);
+    if (result.success !== true) throw new Error('Parsing failed');
+    expect(result.data).toStrictEqual(queryResult);
+    type verify = Expect<Equal<typeof result.data, Result>>;
+  });
+
+  test('returns an error for invalid query params using a schema', async () => {
     const badRequest = new Request(`http://example.com?id=id1&age=notanumber`);
-    const result = zx.parseQuerySafe(badRequest, schema);
+    const result = await zx.parseQuerySafe(badRequest, zodSchema);
+    expect(result.success).toBe(false);
+    if (result.success !== false) throw new Error('Parsing should have failed');
+    expect(result.error.issues.length).toBe(1);
+    expect(result.error.issues[0].path[0]).toBe('age');
+  });
+
+  test('returns an error for invalid query params using an async schema', async () => {
+    const badRequest = new Request(`http://example.com?id=id1&age=notanumber`);
+    const result = await zx.parseQuerySafe(badRequest, asyncSchema);
     expect(result.success).toBe(false);
     if (result.success !== false) throw new Error('Parsing should have failed');
     expect(result.error.issues.length).toBe(1);
@@ -257,42 +438,59 @@ describe('parseForm', () => {
     image?: NodeOnDiskFile;
   };
   const formResult = { id: 'id1', age: 10, consent: true };
-  const schema = z.object({
+  const objectSchema = {
     id: z.string(),
     age: zx.IntAsString,
     consent: zx.CheckboxAsString,
     friends: z.array(z.string()).optional(),
     image: z.instanceof(NodeOnDiskFile).optional(),
-  });
+  };
+  const zodSchema = z.object(objectSchema);
+  const asyncSchema = zodSchema.transform((data) => Promise.resolve(data));
 
   test('parses FormData from Request using an object', async () => {
     const request = createFormRequest();
-    const result = await zx.parseForm(request, {
-      id: z.string(),
-      age: zx.IntAsString,
-      consent: zx.CheckboxAsString,
-      friends: z.array(z.string()).optional(),
-      image: z.instanceof(NodeOnDiskFile).optional(),
-    });
+    const result = await zx.parseForm(request, objectSchema);
     expect(result).toStrictEqual(formResult);
     type verify = Expect<Equal<typeof result, Result>>;
   });
 
   test('parses FormData from Request using a schema', async () => {
     const request = createFormRequest();
-    const result = await zx.parseForm(request, schema);
+    const result = await zx.parseForm(request, zodSchema);
+    expect(result).toStrictEqual(formResult);
+    type verify = Expect<Equal<typeof result, Result>>;
+  });
+
+  test('parses FormData from Request using an async schema', async () => {
+    const request = createFormRequest();
+    const result = await zx.parseForm(request, asyncSchema);
+    expect(result).toStrictEqual(formResult);
+    type verify = Expect<Equal<typeof result, Result>>;
+  });
+
+  test('parses FormData from FormData using an object', async () => {
+    const formData = await createFormRequest().formData();
+    const result = await zx.parseForm(formData, objectSchema);
     expect(result).toStrictEqual(formResult);
     type verify = Expect<Equal<typeof result, Result>>;
   });
 
   test('parses FormData from FormData using a schema', async () => {
     const formData = await createFormRequest().formData();
-    const result = await zx.parseForm(formData, schema);
+    const result = await zx.parseForm(formData, zodSchema);
     expect(result).toStrictEqual(formResult);
     type verify = Expect<Equal<typeof result, Result>>;
   });
 
-  test('parses arrays from FormData of a Request', async () => {
+  test('parses FormData from FormData using an async schema', async () => {
+    const formData = await createFormRequest().formData();
+    const result = await zx.parseForm(formData, asyncSchema);
+    expect(result).toStrictEqual(formResult);
+    type verify = Expect<Equal<typeof result, Result>>;
+  });
+
+  test('parses arrays from FormData of a Request using an object', async () => {
     const form = new FormData();
     form.append('id', 'id1');
     form.append('age', '10');
@@ -317,15 +515,15 @@ describe('parseForm', () => {
     type verify = Expect<Equal<typeof result, Result>>;
   });
 
-  test('parses objects keys of FormData from FormData', async () => {
+  test('parses objects keys of FormData from FormData using a schema', async () => {
     const request = createFormRequest();
     const form = await request.formData();
     const image = new NodeOnDiskFile('public/image.jpeg', 'image/jpeg');
     form.append('image', image);
     const parser = getCustomFileParser('image');
-    const result = await zx.parseForm<typeof schema, typeof parser>(
+    const result = await zx.parseForm<typeof zodSchema, typeof parser>(
       form,
-      schema,
+      zodSchema,
       { parser }
     );
     expect(result).toStrictEqual({
@@ -335,9 +533,41 @@ describe('parseForm', () => {
     type verify = Expect<Equal<typeof result, Result>>;
   });
 
-  test('throws for invalid FormData', () => {
+  test('parses objects keys of FormData from FormData using an async schema', async () => {
+    const request = createFormRequest();
+    const form = await request.formData();
+    const image = new NodeOnDiskFile('public/image.jpeg', 'image/jpeg');
+    form.append('image', image);
+    const parser = getCustomFileParser('image');
+    const result = await zx.parseForm<typeof asyncSchema, typeof parser>(
+      form,
+      asyncSchema,
+      { parser }
+    );
+    expect(result).toStrictEqual({
+      ...formResult,
+      image,
+    });
+    type verify = Expect<Equal<typeof result, Result>>;
+  });
+
+  test('throws for invalid FormData using an object', async () => {
     const badRequest = createFormRequest('notanumber');
-    expect(() => zx.parseQuery(badRequest, schema)).toThrow();
+    await expect(() =>
+      zx.parseQuery(badRequest, objectSchema)
+    ).rejects.toThrow();
+  });
+
+  test('throws for invalid FormData using a schema', async () => {
+    const badRequest = createFormRequest('notanumber');
+    await expect(() => zx.parseQuery(badRequest, zodSchema)).rejects.toThrow();
+  });
+
+  test('throws for invalid FormData using an async schema', async () => {
+    const badRequest = createFormRequest('notanumber');
+    await expect(() =>
+      zx.parseQuery(badRequest, asyncSchema)
+    ).rejects.toThrow();
   });
 });
 
@@ -350,13 +580,14 @@ describe('parseFormSafe', () => {
     image?: NodeOnDiskFile;
   };
   const formResult = { id: 'id1', age: 10, consent: true };
-  const schema = z.object({
+  const zodSchema = z.object({
     id: z.string(),
     age: zx.IntAsString,
     consent: zx.CheckboxAsString,
     friends: z.array(z.string()).optional(),
     image: z.instanceof(NodeOnDiskFile).optional(),
   });
+  const asyncSchema = zodSchema.transform((data) => Promise.resolve(data));
 
   test('parses FormData from Request using an object', async () => {
     const request = createFormRequest();
@@ -375,7 +606,16 @@ describe('parseFormSafe', () => {
 
   test('parses FormData from Request using a schema', async () => {
     const request = createFormRequest();
-    const result = await zx.parseFormSafe(request, schema);
+    const result = await zx.parseFormSafe(request, zodSchema);
+    expect(result.success).toBe(true);
+    if (result.success !== true) throw new Error('Parsing failed');
+    expect(result.data).toStrictEqual(formResult);
+    type verify = Expect<Equal<typeof result.data, Result>>;
+  });
+
+  test('parses FormData from Request using an async schema', async () => {
+    const request = createFormRequest();
+    const result = await zx.parseFormSafe(request, asyncSchema);
     expect(result.success).toBe(true);
     if (result.success !== true) throw new Error('Parsing failed');
     expect(result.data).toStrictEqual(formResult);
@@ -384,7 +624,16 @@ describe('parseFormSafe', () => {
 
   test('parses FormData from FormData using a schema', async () => {
     const formData = await createFormRequest().formData();
-    const result = await zx.parseFormSafe(formData, schema);
+    const result = await zx.parseFormSafe(formData, zodSchema);
+    expect(result.success).toBe(true);
+    if (result.success !== true) throw new Error('Parsing failed');
+    expect(result.data).toStrictEqual(formResult);
+    type verify = Expect<Equal<typeof result.data, Result>>;
+  });
+
+  test('parses FormData from FormData using an async schema', async () => {
+    const formData = await createFormRequest().formData();
+    const result = await zx.parseFormSafe(formData, asyncSchema);
     expect(result.success).toBe(true);
     if (result.success !== true) throw new Error('Parsing failed');
     expect(result.data).toStrictEqual(formResult);
@@ -393,22 +642,42 @@ describe('parseFormSafe', () => {
 
   test('returns an error for invalid FormData', async () => {
     const badRequest = createFormRequest('notanumber');
-    const result = await zx.parseFormSafe(badRequest, schema);
+    const result = await zx.parseFormSafe(badRequest, zodSchema);
     expect(result.success).toBe(false);
     if (result.success !== false) throw new Error('Parsing should have failed');
     expect(result.error.issues.length).toBe(1);
     expect(result.error.issues[0].path[0]).toBe('age');
   });
 
-  test('parses objects keys of FormData from FormData', async () => {
+  test('parses objects keys of FormData from FormData using a schema', async () => {
     const request = createFormRequest();
     const form = await request.formData();
     const image = new NodeOnDiskFile('public/image.jpeg', 'image/jpeg');
     form.append('image', image);
     const parser = getCustomFileParser('image');
-    const result = await zx.parseFormSafe<typeof schema, typeof parser>(
+    const result = await zx.parseFormSafe<typeof zodSchema, typeof parser>(
       form,
-      schema,
+      zodSchema,
+      { parser }
+    );
+    expect(result.success).toBe(true);
+    if (result.success !== true) throw new Error('Parsing failed');
+    expect(result.data).toStrictEqual({
+      ...formResult,
+      image,
+    });
+    type verify = Expect<Equal<typeof result.data, Result>>;
+  });
+
+  test('parses objects keys of FormData from FormData using an async schema', async () => {
+    const request = createFormRequest();
+    const form = await request.formData();
+    const image = new NodeOnDiskFile('public/image.jpeg', 'image/jpeg');
+    form.append('image', image);
+    const parser = getCustomFileParser('image');
+    const result = await zx.parseFormSafe<typeof asyncSchema, typeof parser>(
+      form,
+      asyncSchema,
       { parser }
     );
     expect(result.success).toBe(true);
@@ -420,6 +689,22 @@ describe('parseFormSafe', () => {
     type verify = Expect<Equal<typeof result.data, Result>>;
   });
 });
+
+function getSchemas<T extends ZodRawShape>(
+  object: T
+): {
+  object: T;
+  zod: ZodObject<T>;
+  async: ZodEffects<ZodObject<T>>;
+} {
+  const zod = z.object(object);
+  const async = zod.transform((data) => Promise.resolve(data));
+  return {
+    object,
+    zod,
+    async,
+  };
+}
 
 // Custom URLSearchParams parser that cleans arr[] keys
 function customArrayParser(searchParams: URLSearchParams) {
